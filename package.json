@@ -1,0 +1,28 @@
+{
+  "name": "mcp-toolbox",
+  "version": "0.1.0",
+  "description": "MCP + Web 同构工具箱：一份命令核心，同时驱动 MCP server 与 Web API",
+  "scripts": {
+    "test": "tsx tests/run-all.mts",
+    "build": "tsc -p tsconfig.json && npm run build:web",
+    "build:web": "node scripts/copy-web.mjs",
+    "typecheck": "tsc -p tsconfig.test.json",
+    "start": "node dist/index.js",
+    "start:http": "node dist/index.js --http",
+    "dev": "tsx src/index.ts"
+  },
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "@modelcontextprotocol/node": "^2.1.2",
+    "@modelcontextprotocol/server": "^2.4.0",
+    "zod": "^4.6.7"
+  },
+  "devDependencies": {
+    "@modelcontextprotocol/client": "^2.4.0",
+    "@types/node": "^22.20.7",
+    "tsx": "^4.23.15",
+    "typescript": "^5.9.3"
+  },
+  "license": "MIT"
+}

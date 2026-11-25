@@ -1,0 +1,53 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>MCP Toolbox</title>
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><text y='26' font-size='26'>🧰</text></svg>" />
+    <link rel="stylesheet" href="/assets/app.css" />
+  </head>
+  <body>
+    <div id="app" class="app">
+      <aside class="sidebar">
+        <div class="brand">
+          <span class="brand-mark">🧰</span>
+          <div class="brand-text">
+            <strong>MCP Toolbox</strong>
+            <span class="brand-sub" id="brand-sub">載入中…</span>
+          </div>
+        </div>
+        <nav class="nav" id="nav" aria-label="模組"></nav>
+        <div class="sidebar-foot">
+          <a class="foot-link" id="mcp-link" href="/mcp" target="_blank" rel="noreferrer">MCP 端點 ↗</a>
+          <span class="foot-note">同一份命令核心驅動面板與 Agent</span>
+        </div>
+      </aside>
+
+      <main class="main">
+        <header class="topbar">
+          <div class="topbar-main">
+            <h1 id="page-title">載入中…</h1>
+            <p id="page-desc" class="page-desc"></p>
+          </div>
+          <div class="topbar-side" id="topbar-side"></div>
+        </header>
+
+        <section class="content" id="content">
+          <div class="boot">正在讀取命令清單…</div>
+        </section>
+
+        <footer class="statusbar">
+          <span class="status-dot" id="status-dot" data-state="idle"></span>
+          <span id="status-text">就緒</span>
+          <span class="status-spacer"></span>
+          <span id="status-meta" class="status-meta"></span>
+        </footer>
+      </main>
+    </div>
+
+    <div class="toast-stack" id="toast-stack" aria-live="polite"></div>
+
+    <script type="module" src="/assets/app.js"></script>
+  </body>
+</html>
