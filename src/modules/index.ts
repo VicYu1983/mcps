@@ -7,6 +7,7 @@
 import type { AnyCommand } from '../core/command.js'
 import type { CommandRegistry } from '../core/registry.js'
 import type { JobManager } from '../runtime/jobs.js'
+import { createModbusModule, type ModbusModuleOptions } from './modbus/index.js'
 import { createNetscanModule, type NetscanModuleOptions } from './netscan/index.js'
 
 export interface ModuleDeps {
@@ -15,11 +16,13 @@ export interface ModuleDeps {
 
 export interface ModuleOverrides {
   netscan?: Omit<NetscanModuleOptions, 'jobs'>
+  modbus?: ModbusModuleOptions
 }
 
 export interface LoadedModules {
   /** 供上层（例如 stop-all 或状态查询）拿到模块实例。 */
   netscan: ReturnType<typeof createNetscanModule>
+  modbus: ReturnType<typeof createModbusModule>
 }
 
 export function loadModules(
@@ -28,6 +31,8 @@ export function loadModules(
   overrides: ModuleOverrides = {},
 ): LoadedModules {
   const netscan = createNetscanModule({ jobs: deps.jobs, ...overrides.netscan })
+  const modbus = createModbusModule({ ...overrides.modbus })
   registry.register(...(netscan.commands as AnyCommand[]))
-  return { netscan }
+  registry.register(...(modbus.commands as AnyCommand[]))
+  return { netscan, modbus }
 }

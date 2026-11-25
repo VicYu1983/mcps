@@ -9,6 +9,7 @@
  */
 import { fetchCatalog, ApiError } from './api.js';
 import { h, clear, toast } from './dom.js';
+import { createModbusView } from './view-modbus.js';
 import { createNetscanView } from './view-netscan.js';
 
 /** 面板註冊表：command 前綴 → 模組。 */
@@ -20,6 +21,14 @@ const MODULES = [
     title: '網路掃描',
     desc: '從本機探測 IPv4 網段：TCP 連通性探測 + ARP 快取補充，找出存活主機與開放連接埠。',
     create: createNetscanView,
+  },
+  {
+    id: 'modbus',
+    prefix: 'modbus_',
+    icon: '🔌',
+    title: 'Modbus 讀寫',
+    desc: 'Modbus TCP 讀寫台：五種資料型別、四種字序、工程比例、位元切換、輪詢與唯讀鎖定。',
+    create: createModbusView,
   },
 ];
 

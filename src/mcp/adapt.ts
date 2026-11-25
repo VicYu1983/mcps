@@ -44,7 +44,7 @@ export function attachCommands(
   options: McpAdapterOptions = {},
 ): number {
   const log = options.log ?? ((message: string) => process.stderr.write(`${message}\n`))
-  const commands = registry.list()
+  const commands = registry.listFor('mcp')
 
   for (const command of commands) {
     const { name, title, description, input, output, annotations, render, handler } = command

@@ -31,14 +31,14 @@ test('http: streamable HTTP 端点可用，且只绑 127.0.0.1', async () => {
   })
   assert.ok(running.url, 'http 模式必须给出 url')
   assert.match(running.url!, /^http:\/\/127\.0\.0\.1:\d+\/mcp$/)
-  assert.equal(running.toolCount, registry.size)
+  assert.equal(running.toolCount, registry.listFor('mcp').length)
 
   const client = new Client({ name: 'http-test', version: '0.0.0' })
   const transport = new StreamableHTTPClientTransport(new URL(running.url!))
   try {
     await client.connect(transport)
     const { tools } = await client.listTools()
-    assert.equal(tools.length, registry.size)
+    assert.equal(tools.length, registry.listFor('mcp').length)
     const result = await client.callTool({ name: 'netscan_list_interfaces', arguments: {} })
     assert.ok(!result.isError || (result.structuredContent as { code?: string }).code !== undefined)
   } finally {
@@ -145,9 +145,14 @@ test('stdio: 子进程启动后能完成 initialize 与 tools/list', async () =>
   try {
     await client.connect(transport)
     const { tools } = await client.listTools()
+    // 期望值从同一份注册表推导，而不是写死清单：新增模组时不必回来改这里，
+    // 而「只给 Web 的命令不该出现」仍由 listFor('mcp') 保证。
+    const local = buildRegistry()
+    const expected = local.registry.listFor('mcp').map((command) => command.name).sort()
+    local.jobs.dispose()
     assert.deepEqual(
       tools.map((tool) => tool.name).sort(),
-      ['netscan_get_scan', 'netscan_list_interfaces', 'netscan_start_scan', 'netscan_stop_scan'],
+      expected,
     )
     const result = await client.callTool({ name: 'netscan_get_scan', arguments: { waitMs: 0 } })
     assert.equal(result.isError, true)

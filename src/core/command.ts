@@ -29,6 +29,20 @@ export interface CommandAnnotations {
  * 不可控（Claude Desktop 常见 60s，Cursor 更短），同步等待必然超时。
  * 声明后调用方拿到 { jobId }，再用 job 查询命令轮询。
  */
+/**
+ * 命令要出現在哪一個介面上。
+ *
+ * 預設兩邊都出現——這正是「同構」的意思：Agent 做得到的面板也做得到。
+ * 少數命令刻意只給其中一邊，例如 Modbus 的唯讀鎖定開關：面板能開關，
+ * Agent 只能讀狀態，否則「防誤寫」就失去意義。
+ */
+export interface CommandExposure {
+  /** 掛到 MCP 工具清單（預設 true）。 */
+  mcp?: boolean
+  /** 掛到 Web API 與面板的命令目錄（預設 true）。 */
+  web?: boolean
+}
+
 export interface LongRunningSpec {
   /** 单次任务的硬上限；超时后由 JobManager 标记为 failed。 */
   timeoutMs: number
@@ -56,6 +70,8 @@ export interface CommandDefinition<
   input: TInput
   output: TOutput
   annotations: CommandAnnotations
+  /** 只掛到單一介面時使用；省略代表 MCP 與 Web 都可見。 */
+  expose?: CommandExposure
   /** 声明为长时任务后，handler 必须返回 { jobId } 形态。 */
   longRunning?: LongRunningSpec
   /**

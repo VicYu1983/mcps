@@ -19,6 +19,7 @@ import { fileURLToPath } from 'node:url'
 import { z } from 'zod'
 import { httpStatusFor, toToolboxError } from '../core/errors.js'
 import type { CommandRegistry } from '../core/registry.js'
+import { isExposedOn } from '../core/registry.js'
 import { callCommand } from '../mcp/adapt.js'
 
 const MAX_BODY_BYTES = 256 * 1024
@@ -34,7 +35,7 @@ const CONTENT_TYPES: Readonly<Record<string, string>> = {
 
 /** 把 Zod 转成 JSON Schema 交给前端；前端只用它做展示与默认值，不做重复校验。 */
 function commandCatalog(registry: CommandRegistry) {
-  return registry.list().map((command) => ({
+  return registry.listFor('web').map((command) => ({
     name: command.name,
     title: command.title,
     description: command.description,
@@ -139,6 +140,15 @@ export function createWebHandler(options: WebApiOptions) {
       }
       const name = decodeURIComponent(pathname.slice('/api/commands/'.length))
       const startedAt = Date.now()
+      const known = registry.get(name)
+      if (known && !isExposedOn(known, 'web')) {
+        // 存在但不对 Web 开放：回 not-found，不告诉调用方「其实有这个命令」。
+        sendJson(response, 404, {
+          ok: false,
+          error: { code: 'not-found', message: `unknown command ${JSON.stringify(name)}` },
+        })
+        return true
+      }
       try {
         const body = await readJsonBody(request)
         const result = await callCommand(registry, name, body, { log })

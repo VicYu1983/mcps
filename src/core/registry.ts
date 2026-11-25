@@ -8,6 +8,10 @@
 import type { AnyCommand } from './command.js'
 import { ToolboxError } from './errors.js'
 
+/** 命令對外可見的介面。 */
+export type Surface = 'mcp' | 'web'
+
+
 export class CommandRegistry {
   readonly #commands = new Map<string, AnyCommand>()
 
@@ -48,7 +52,29 @@ export class CommandRegistry {
     return [...this.#commands.values()].sort((left, right) => left.name.localeCompare(right.name))
   }
 
+  /**
+   * 某个介面上真正可见的命令。
+   *
+   * MCP 适配层与 Web API 层各自用这个过滤，而不是各自判断 expose——
+   * 否则哪天新增第三个入口，过滤规则就会各写一份。
+   */
+  listFor(surface: Surface): AnyCommand[] {
+    return this.list().filter((command) => isExposedOn(command, surface))
+  }
+
   get size(): number {
     return this.#commands.size
   }
+}
+
+/**
+ * 命令是否挂到某个介面。`expose` 省略时两边都可见。
+ *
+ * 导出给适配层用：Web 的 POST 入口需要知道「这个命令存不存在但不对我开放」，
+ * 那种情况要回 not-found 而不是 unauthorized，才不会诱出更多探测。
+ */
+export function isExposedOn(command: AnyCommand, surface: Surface): boolean {
+  const exposure = command.expose
+  if (!exposure) return true
+  return exposure[surface] !== false
 }

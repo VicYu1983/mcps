@@ -77,11 +77,14 @@ test('tools/list: 清单完全来自命令表，命名带模块前缀', async ()
   const h = await harness()
   try {
     const { tools } = await h.client.listTools()
+    // 清单从注册表推导（且只含 MCP 可见的命令），不写死名字：
+    // 新增模组不必回来改测试，「只给 Web 的 modbus_set_guard 不该出现」也一并被验证。
     assert.deepEqual(
       tools.map((tool) => tool.name),
-      ['netscan_get_scan', 'netscan_list_interfaces', 'netscan_start_scan', 'netscan_stop_scan'],
+      h.registry.listFor('mcp').map((command) => command.name),
     )
     for (const tool of tools) {
+      assert.match(tool.name, /^(netscan|modbus)_/, `${tool.name} 必须带模组前缀`)
       assert.ok(tool.description && tool.description.length > 20, `${tool.name} needs a real description`)
       assert.equal(tool.inputSchema.type, 'object')
       // canonical JSON Schema：required 是顶层数组，且不能出现 type 数组
