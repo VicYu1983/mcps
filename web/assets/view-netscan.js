@@ -36,7 +36,9 @@ function cidrToRange(cidr) {
   const base = [1, 2, 3, 4].map((index) => Number(match[index]));
   if (base.some((part) => part > 255)) return null;
   const size = 2 ** (32 - prefix);
-  const startInt = base.reduce((accumulator, part) => accumulator * 256 + part, 0) & ~(size - 1);
+  // >>> 0：& 的結果是 32 位有號整數，位址 >= 2^31（第一個八位元組 >= 128）會變負數，
+  // 後續 toIp 的除法就會吐出負的八位元組。轉回無號才是正確的網路位址。
+  const startInt = (base.reduce((accumulator, part) => accumulator * 256 + part, 0) & ~(size - 1)) >>> 0;
   const toIp = (value) => [24, 16, 8, 0].map((shift) => Math.floor(value / 2 ** shift) % 256).join('.');
   // 跳过网络位与广播位
   return [toIp(startInt + 1), toIp(startInt + size - 2)];
@@ -98,7 +100,6 @@ export function createNetscanView({ setStatus }) {
   const startButton = h('button', { class: 'btn btn-primary', type: 'submit' }, '開始掃描');
   const stopButton = h('button', { class: 'btn btn-danger', type: 'button', disabled: '' }, '停止');
   const swapButton = h('button', { class: 'btn btn-sm btn-ghost', type: 'button', title: '第一段 /24 自動填入' }, '用本機網段');
-  const banner = h('div', { class: 'banner banner-error', hidden: '' });
   const formEl = h('form', { class: 'card-body', novalidate: '' });
 
   startInput.value = saved.startIp ?? '';
@@ -107,7 +108,6 @@ export function createNetscanView({ setStatus }) {
 
   // 行号 + 交换
   formEl.append(
-    banner,
     h(
       'div',
       { class: 'grid-form' },
@@ -278,15 +278,12 @@ export function createNetscanView({ setStatus }) {
   function clearFieldError() {
     startInput.removeAttribute('aria-invalid');
     portsInput.removeAttribute('aria-invalid');
-    banner.hidden = true;
   }
 
   function reportError(error) {
     const message = error instanceof ApiError ? error.message : String(error?.message ?? error);
     const code = error instanceof ApiError ? error.code : 'unknown';
-    banner.hidden = false;
-    clear(banner);
-    banner.append(h('span', { class: 'banner-strong' }, code), h('span', {}, message));
+    toast(`${code}: ${message}`, 'error');
     if (error instanceof ApiError) {
       if (error.field === 'startIp' || error.field === 'target') startInput.setAttribute('aria-invalid', 'true');
       if (error.field === 'ports') portsInput.setAttribute('aria-invalid', 'true');
@@ -327,11 +324,7 @@ export function createNetscanView({ setStatus }) {
         toast('掃描已停止', 'info');
       } else {
         setStatus('error', `掃描失敗：${snapshot.error?.message ?? '未知錯誤'}`);
-        if (snapshot.error) {
-          banner.hidden = false;
-          clear(banner);
-          banner.append(h('span', { class: 'banner-strong' }, snapshot.error.code), h('span', {}, snapshot.error.message));
-        }
+        if (snapshot.error) toast(`${snapshot.error.code}: ${snapshot.error.message}`, 'error');
       }
     } else {
       state.running = true;
@@ -500,9 +493,7 @@ export function createNetscanView({ setStatus }) {
     } else if (startIp) {
       input.target = startIp;
     } else {
-      banner.hidden = false;
-      clear(banner);
-      banner.append(h('span', { class: 'banner-strong' }, '缺少目標'), h('span', {}, '請填入起始 IP，或直接貼一段 CIDR（例如 192.168.0.0/24）。'));
+      toast('缺少目標：請填入起始 IP，或直接貼一段 CIDR（例如 192.168.0.0/24）。', 'error');
       startInput.setAttribute('aria-invalid', 'true');
       startInput.focus();
       return;

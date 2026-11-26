@@ -76,7 +76,6 @@ export function createModbusView({ setStatus }) {
   const connectState = h('span', { class: 'result-target empty' }, '未連線');
   const guardInput = h('input', { type: 'checkbox' });
   const guardHint = h('span', { class: 'field-hint' }, '開啟後面板與 Agent 都無法寫入。只有這裡能解鎖。');
-  const banner = h('div', { class: 'banner banner-error', hidden: '' });
   const presetSelect = select(
     [{ id: '', label: '目前連線' }, ...state.profiles.map((entry) => ({ id: entry.name, label: entry.name }))],
     state.activeProfile,
@@ -95,7 +94,6 @@ export function createModbusView({ setStatus }) {
     'form',
     { class: 'card-body', novalidate: '' },
     presetRow,
-    banner,
     h(
       'div',
       { class: 'grid-form' },
@@ -263,16 +261,6 @@ export function createModbusView({ setStatus }) {
     readState.className = 'result-target empty';
   }
 
-  function showBanner(message) {
-    banner.textContent = message;
-    banner.hidden = false;
-  }
-
-  function clearBanner() {
-    banner.textContent = '';
-    banner.hidden = true;
-  }
-
   function reportError(error, target, card) {
     const message = error instanceof ApiError ? error.message : String(error?.message ?? error);
     if (target) {
@@ -347,11 +335,10 @@ export function createModbusView({ setStatus }) {
   async function connect() {
     const host = hostInput.value.trim();
     if (host === '') {
-      showBanner('請先填位址');
+      toast('請先填位址', 'error');
       hostInput.focus();
       return;
     }
-    clearBanner();
     setStatus('busy', '連線中…');
     try {
       const { result, text } = await invokeCommand('modbus_connection', {
