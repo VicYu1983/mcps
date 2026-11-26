@@ -151,7 +151,7 @@ export function createWebHandler(options: WebApiOptions) {
       }
       try {
         const body = await readJsonBody(request)
-        const result = await callCommand(registry, name, body, { log })
+        const result = await callCommand(registry, name, body, { log, source: 'panel' })
         log(`[web] ${name} ok in ${Date.now() - startedAt} ms`)
         sendJson(response, 200, { ok: true, text: result.text, result: result.structured })
       } catch (error) {

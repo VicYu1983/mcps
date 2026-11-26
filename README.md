@@ -2,7 +2,7 @@
 
 MCP + Web 同构工具箱。**一份命令核心，同时驱动 MCP server 与 Web API**，两者永远一致。
 
-当前实现：`netscan`（IPv4 网段扫描，4 个工具）与 `modbus`（Modbus TCP 读写台，5 个工具），双传输（stdio + streamable HTTP）。
+当前实现：`netscan`（IPv4 网段扫描，4 个工具）与 `modbus`（Modbus TCP 读写台），双传输（stdio + streamable HTTP）。Modbus MCP 端沿用 DSH 插件的单一 `modbus_poll` action-dispatch 介面；Web 面板仍通过同一命令核心调用。
 
 ## 为什么长这样
 
@@ -45,7 +45,7 @@ src/
 │       ├── client.ts   Modbus TCP 协议核心（FC01–FC16 子集，零依赖）
 │       ├── types.ts    型别／字序／比例编解码（面板与工具共用同一份）
 │       ├── service.ts  连线状态、自动重连、读写、watch、扫站号、唯读锁
-│       └── commands.ts 5 个 modbus_* 工具 + 1 个只给 Web 的锁开关
+│       └── commands.ts MCP 的 modbus_poll + Web 命令与只给 Web 的锁开关
 └── index.ts            入口与 CLI 参数
 ```
 
@@ -108,11 +108,7 @@ MCP 客户端配置（Claude Desktop / Cursor 等）：
 | `netscan_start_scan` | 写 | 启动扫描，**立即返回 jobId** |
 | `netscan_get_scan` | 只读 | 查进度/结果，分页（默认 50，上限 200） |
 | `netscan_stop_scan` | 控制 | 中止并返回部分结果，幂等 |
-| `modbus_connection` | 控制 | `status`／`connect`／`disconnect`：有状态的三件事合成一个工具 |
-| `modbus_read` | 只读 | 读暂存器或位元，超过 125 笔自动切块，32 位型别依值宽对齐 |
-| `modbus_write` | 写 | 单笔／批次／单一 bit（先读、改位元、写回），可 `verify` 读回比对 |
-| `modbus_watch` | 只读 | 轮询到值等于 `expect`，用来**证明**写入真的生效 |
-| `modbus_scan_units` | 只读 | 扫站号，用独立 socket 不干扰主连线 |
+| `modbus_poll` | action dispatch | 与 DSH 插件一致：`status`／`connect`／`disconnect`／`read`／`write`／`write-bit`／`watch`／`dump`／`scan-units`／`guard` |
 | `modbus_set_guard` | 控制 | **只给 Web**：唯读锁定开关，Agent 的工具清单里没有这个名字 |
 
 ### 为什么 start 不阻塞
@@ -157,8 +153,10 @@ npm test            # 35 个用例，4 个文件
 - **连接是模块状态，不是进程全局**：与 netscan 的 `currentJobId` 同一层级。测试才能并行创建多个互不干扰的实例，面板与 Agent 也共用同一个 `service`。
 - **一次一台设备**：连到同一个 `host:port` 时只切换站号，不重开 socket；换设备才断开重连。
 - **死掉的 socket 会自动重开**，结果带 `reconnected: true` 说明「这次是重连后拿到的」，而不是假装什么都没发生。
-- **读取自动切块**：DSH 版把「小范围读」与「大范围 dump」拆成两个动作，这里合并成一个 `modbus_read`。`count` 超过 125（暂存器）或 2000（位元）就分次请求，超过 1024／2048 才截断并回 `truncated`。32 位型别的切块对齐到值宽，浮点数不会被切成两半。
-- **写入可以证明**：`verify: true` 写完读回比对；要等状态收敛就用 `modbus_watch`。两者都失败时回 `verified: false` 或 `matched: false`，不会只说「已写入」。
+- **保留插件的工具介面**：MCP 客户端看到单一 `modbus_poll`，透过 `action` 选择操作；Web 面板使用同一组底层命令处理器，不重复实现协议逻辑。
+- **读取自动切块**：`read`／`dump` 超过 125（暂存器）或 2000（位元）就分次请求，超过 1024／2048 才截断并回 `truncated`。32 位型别的切块对齐到值宽，浮点数不会被切成两半。
+- **写入可以证明**：`write` 的 `verify: true` 写完读回比对；要等状态收敛就用 `modbus_poll` 的 `watch` action。两者都失败时回 `verified: false` 或 `matched: false`，不会只说「已写入」。
+- **面板沿用插件操作方式**：已存装置、连线后读取、单次读／开始停止轮询、保持暂存器逐列写入与位元切换、线圈逐点切换；切换資料表或型别时清除旧结果，避免对旧数据显示的值执行写入。
 - **唯读锁定只给面板**：`modbus_set_guard` 声明 `expose: { mcp: false }`，所以 MCP 的工具清单里没有它。Agent 能自己解锁的话，这个锁就形同虚设。
 - **输入暂存器／离散输入一律拒写**：DSH 版把 `kind: "input"` 的写回落到 holding 位址，容易误导；这里直接报 `invalid-parameter`。
 

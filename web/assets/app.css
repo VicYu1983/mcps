@@ -720,6 +720,69 @@ table.result td.mono {
   font-variant-numeric: tabular-nums;
 }
 
+.bit-row {
+  display: flex;
+  gap: 2px;
+  min-width: 280px;
+}
+
+.bit-cell {
+  min-width: 18px;
+  padding: 2px;
+  border: 1px solid var(--border-strong);
+  border-radius: 3px;
+  background: var(--bg-inset);
+  color: var(--text-faint);
+  font: 10px var(--mono);
+  cursor: pointer;
+}
+
+.bit-cell[data-active="true"] {
+  color: var(--accent);
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+
+.bit-cell:disabled,
+.chip:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+.inline-write {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 150px;
+}
+
+.inline-write-input {
+  width: 100px;
+  min-width: 80px;
+  padding: 5px 7px;
+}
+
+.result-changed {
+  animation: resultFlash 1.4s ease-out;
+}
+
+@keyframes resultFlash {
+  from { box-shadow: inset 3px 0 0 var(--accent); }
+  to { box-shadow: inset 3px 0 0 transparent; }
+}
+
+.preset-row {
+  align-items: end;
+  margin-bottom: 14px;
+}
+
+.preset-row .form-actions {
+  margin: 0;
+  padding: 0;
+  border: 0;
+  flex-wrap: wrap;
+}
+
 table.result td.dim {
   color: var(--text-faint);
 }

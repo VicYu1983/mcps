@@ -72,6 +72,7 @@ export function attachCommands(
           const result = (await handler(parsed, {
             signal: controller.signal,
             log: (message: string) => log(`[${name}] ${message}`),
+            source: 'tool',
             ...options.context,
           })) as z.output<typeof output>
           return {
@@ -99,13 +100,14 @@ export async function callCommand(
   registry: CommandRegistry,
   name: string,
   rawInput: unknown,
-  options: { signal?: AbortSignal; log?: (message: string) => void; command?: AnyCommand } = {},
+  options: { signal?: AbortSignal; log?: (message: string) => void; command?: AnyCommand; source?: 'panel' | 'tool' } = {},
 ): Promise<{ text: string; structured: Record<string, unknown> }> {
   const command: AnyCommand = options.command ?? registry.require(name)
   const parsed = command.input.parse(rawInput ?? {})
   const output = await command.handler(parsed, {
     signal: options.signal ?? new AbortController().signal,
     log: options.log ?? (() => {}),
+    source: options.source,
   })
   return { text: command.render(output), structured: output as Record<string, unknown> }
 }

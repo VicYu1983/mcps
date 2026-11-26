@@ -166,6 +166,7 @@ export function createModbusModule(options: ModbusModuleOptions = {}): ModbusMod
       summary: z.string(),
     }),
     annotations: { readOnlyHint: false, destructiveHint: false, openWorldHint: true, idempotentHint: false },
+    expose: { mcp: false },
     render: (output) => output.summary,
     async handler(input) {
       const action = input.action ?? 'status'
@@ -220,6 +221,7 @@ export function createModbusModule(options: ModbusModuleOptions = {}): ModbusMod
     }),
     output: z.object({ ...ReadFields, summary: z.string() }),
     annotations: { readOnlyHint: true, openWorldHint: true, idempotentHint: true },
+    expose: { mcp: false },
     render: (output) =>
       `${output.summary}${bitList(output.bits, output.start)}${table(output.rows)}`,
     async handler(input) {
@@ -276,8 +278,9 @@ export function createModbusModule(options: ModbusModuleOptions = {}): ModbusMod
       summary: z.string(),
     }),
     annotations: { readOnlyHint: false, destructiveHint: true, openWorldHint: true, idempotentHint: false },
+    expose: { mcp: false },
     render: (output) => output.summary,
-    async handler(input) {
+    async handler(input, ctx) {
       if (input.value === undefined && input.values === undefined) {
         throw new ToolboxError('invalid-parameter', 'pass either value or values to write', {
           field: 'value',
@@ -288,7 +291,7 @@ export function createModbusModule(options: ModbusModuleOptions = {}): ModbusMod
         throw new ToolboxError('invalid-parameter', 'pass value or values, not both', { field: 'values' })
       }
       const kind = normalizeKind(input.kind)
-      const written = await service.write({ ...input, kind }, 'tool')
+      const written = await service.write({ ...input, kind }, ctx.source ?? 'tool')
       let verified: boolean | null = null
       let readBack: number | undefined
 
@@ -366,6 +369,7 @@ export function createModbusModule(options: ModbusModuleOptions = {}): ModbusMod
       summary: z.string(),
     }),
     annotations: { readOnlyHint: true, openWorldHint: true, idempotentHint: true },
+    expose: { mcp: false },
     render: (output) => output.summary,
     async handler(input) {
       const result = await service.watch(input)
@@ -420,6 +424,7 @@ export function createModbusModule(options: ModbusModuleOptions = {}): ModbusMod
       summary: z.string(),
     }),
     annotations: { readOnlyHint: true, openWorldHint: true, idempotentHint: true },
+    expose: { mcp: false },
     render: (output) => output.summary,
     async handler(input) {
       const result = await service.scanUnits(input)
@@ -460,5 +465,105 @@ export function createModbusModule(options: ModbusModuleOptions = {}): ModbusMod
     },
   })
 
-  return { commands: [connection, read, write, watch, scanUnits, setGuard], service }
+  // The original DSH plugin exposes one action-dispatch tool. Keep that MCP
+  // contract while the Web panel continues to call the same focused commands.
+  const poll = defineCommand({
+    name: 'modbus_poll',
+    title: 'Modbus TCP read/write tool',
+    description:
+      'Operate the Modbus TCP read/write panel through one action: status, connect, disconnect, read, write, write-bit, watch, dump, scan-units, or guard. ' +
+      'Supports holding/input registers, coils/discrete inputs, u16/i16/u32/i32/f32, four 32-bit word orders, scale/offset, verified writes, chunked dumps, and a panel-controlled read-only guard. ' +
+      'Connect before reading or writing. Writes take effect immediately. The guard action only reports status and recent writes; only the Web panel can unlock it.',
+    input: z.object({
+      action: z.enum(['status', 'connect', 'disconnect', 'read', 'write', 'write-bit', 'watch', 'dump', 'scan-units', 'guard']).describe('Operation to perform'),
+      host: z.string().optional(),
+      port: z.number().int().min(1).max(65535).optional(),
+      unitId: z.number().int().min(0).max(255).optional(),
+      timeoutMs: z.number().int().min(50).max(60_000).optional(),
+      kind: KindSchema.optional(),
+      start: z.number().int().min(0).max(65535).optional(),
+      count: z.number().int().min(1).optional(),
+      type: TypeSchema.optional(),
+      wordOrder: WordOrderSchema.optional(),
+      scale: z.number().optional(),
+      offset: z.number().optional(),
+      address: z.number().int().min(0).max(65535).optional(),
+      value: z.union([z.number(), z.boolean()]).optional(),
+      values: z.array(z.union([z.number(), z.boolean()])).optional(),
+      bit: z.number().int().min(0).max(15).optional(),
+      verify: z.boolean().optional(),
+      expect: z.number().optional(),
+      tolerance: z.number().optional(),
+      intervalMs: z.number().int().min(50).max(5000).optional(),
+      chunk: z.number().int().min(1).max(125).optional(),
+      from: z.number().int().min(0).max(255).optional(),
+      to: z.number().int().min(0).max(255).optional(),
+      maxMs: z.number().int().min(1000).max(120_000).optional(),
+    }),
+    output: z.object({ action: z.string(), summary: z.string() }).passthrough(),
+    annotations: { readOnlyHint: false, destructiveHint: true, openWorldHint: true, idempotentHint: false },
+    expose: { web: false },
+    render: (output) => output.summary,
+    async handler(input, ctx) {
+      const args: Record<string, unknown> = input
+      const action = input.action
+      let command: CommandDefinition
+      let commandArgs: Record<string, unknown>
+      switch (action) {
+        case 'status':
+        case 'connect':
+        case 'disconnect':
+          command = connection
+          commandArgs = { ...args, action }
+          break
+        case 'read':
+        case 'dump':
+          command = read
+          commandArgs = args
+          break
+        case 'write':
+        case 'write-bit':
+          command = write
+          commandArgs = {
+            ...args,
+            kind: action === 'write-bit' ? 'holding' : args.kind,
+            ...(typeof args.value === 'boolean' ? { value: Number(args.value) } : {}),
+            ...(Array.isArray(args.values) ? { values: args.values.map((value) => Number(value)) } : {}),
+          }
+          break
+        case 'watch':
+          command = watch
+          commandArgs = args
+          break
+        case 'scan-units':
+          command = scanUnits
+          commandArgs = args
+          break
+        case 'guard':
+          {
+            const snapshot = service.snapshot()
+            const lines = snapshot.recentWrites.map((entry) => {
+              const detail = entry.values?.length ? entry.values.join(',') : String(entry.value)
+              return `${entry.at} ${entry.source} ${entry.kind} ${entry.address}: ${detail}`
+            })
+            const output = {
+              action,
+              ...snapshot,
+              summary: `read-only guard is ${snapshot.readOnly ? 'ON' : 'off'}; ${snapshot.recentWrites.length} recent write(s)` +
+                (lines.length ? `\nwhen\tsource\tkind\taddress\tvalue\n${lines.join('\n')}` : ''),
+            }
+            return output
+          }
+      }
+      const parsed = command.input.parse(commandArgs)
+      const result = await command.handler(parsed as never, ctx)
+      const output = result as Record<string, unknown>
+      const summary = typeof output.summary === 'string' && action === 'dump'
+        ? output.summary.replace(/^read /, 'dump ')
+        : output.summary
+      return { ...output, action, summary } as { action: string; summary: string } & Record<string, unknown>
+    },
+  })
+
+  return { commands: [connection, read, write, watch, scanUnits, setGuard, poll], service }
 }

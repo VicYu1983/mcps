@@ -58,25 +58,43 @@ export function createModbusView({ setStatus }) {
     polling: false,
     pollTimer: null,
     rows: null,
+    profiles: Array.isArray(saved.profiles) ? saved.profiles : [],
+    activeProfile: saved.activeProfile ?? '',
+    pollFailures: 0,
   };
 
   // ---- 连线
-  const hostInput = h('input', { class: 'input', id: 'mb-host', placeholder: '192.168.0.10', autocomplete: 'off', spellcheck: 'false' });
+  const hostInput = h('input', { class: 'input', id: 'mb-host', placeholder: '127.0.0.1', autocomplete: 'off', spellcheck: 'false' });
   const portInput = h('input', { class: 'input', id: 'mb-port', type: 'number', min: '1', max: '65535', value: String(saved.port ?? 502) });
   const unitInput = h('input', { class: 'input', id: 'mb-unit', type: 'number', min: '0', max: '255', value: String(saved.unitId ?? 1) });
   const timeoutInput = h('input', { class: 'input', id: 'mb-timeout', type: 'number', min: '100', max: '60000', step: '100', value: String(saved.timeoutMs ?? 3000) });
-  hostInput.value = saved.host ?? '';
+  hostInput.value = saved.host ?? '127.0.0.1';
 
   const connectButton = h('button', { class: 'btn btn-primary', type: 'submit' }, '連線');
   const disconnectButton = h('button', { class: 'btn btn-ghost', type: 'button' }, '中斷');
+  disconnectButton.disabled = true;
   const connectState = h('span', { class: 'result-target empty' }, '未連線');
   const guardInput = h('input', { type: 'checkbox' });
   const guardHint = h('span', { class: 'field-hint' }, '開啟後面板與 Agent 都無法寫入。只有這裡能解鎖。');
   const banner = h('div', { class: 'banner banner-error', hidden: '' });
+  const presetSelect = select(
+    [{ id: '', label: '目前連線' }, ...state.profiles.map((entry) => ({ id: entry.name, label: entry.name }))],
+    state.activeProfile,
+    'mb-preset',
+  );
+  const presetNameInput = h('input', { class: 'input', id: 'mb-preset-name', placeholder: '裝置名稱', autocomplete: 'off' });
+  const savePresetButton = h('button', { class: 'btn btn-ghost', type: 'button' }, '儲存裝置');
+  const deletePresetButton = h('button', { class: 'btn btn-ghost', type: 'button', disabled: state.activeProfile === '' }, '刪除裝置');
+  const presetRow = h('div', { class: 'grid-form preset-row' },
+    field('已存裝置', presetSelect, '選擇裝置時會先中斷目前連線'),
+    field('裝置名稱', presetNameInput, '留白時使用 IP、埠號和站號'),
+    h('div', { class: 'form-actions' }, savePresetButton, deletePresetButton),
+  );
 
   const connectionForm = h(
     'form',
     { class: 'card-body', novalidate: '' },
+    presetRow,
     banner,
     h(
       'div',
@@ -101,12 +119,12 @@ export function createModbusView({ setStatus }) {
   const typeSelect = select(TYPES, state.type, 'mb-type');
   const orderSelect = select(WORD_ORDERS, state.wordOrder, 'mb-order');
   const startInput = h('input', { class: 'input', id: 'mb-start', type: 'number', min: '0', max: '65535', value: String(saved.start ?? 0) });
-  const countInput = h('input', { class: 'input', id: 'mb-count', type: 'number', min: '1', max: '2048', value: String(saved.count ?? 16) });
+  const countInput = h('input', { class: 'input', id: 'mb-count', type: 'number', min: '1', max: '125', value: String(saved.count ?? 16) });
   const scaleInput = h('input', { class: 'input', id: 'mb-scale', type: 'number', step: 'any', value: String(saved.scale ?? 1) });
   const offsetInput = h('input', { class: 'input', id: 'mb-offset', type: 'number', step: 'any', value: String(saved.offset ?? 0) });
   const readButton = h('button', { class: 'btn btn-primary', type: 'submit' }, '讀取');
-  const pollInput = h('input', { type: 'checkbox', checked: saved.polling === true });
-  const pollIntervalInput = h('input', { class: 'input', id: 'mb-poll-ms', type: 'number', min: '200', max: '10000', step: '100', value: String(saved.pollIntervalMs ?? 1000) });
+  const pollButton = h('button', { class: 'btn btn-ghost', type: 'button', disabled: true }, '開始輪詢');
+  const pollIntervalInput = h('input', { class: 'input', id: 'mb-poll-ms', type: 'number', min: '200', max: '60000', step: '100', value: String(saved.pollIntervalMs ?? 1000) });
   const readState = h('span', { class: 'result-target empty' }, '尚未讀取');
 
   const readForm = h(
@@ -117,7 +135,7 @@ export function createModbusView({ setStatus }) {
       { class: 'grid-form' },
       field('資料表', kindSelect, '保持／輸入暫存器是 16 位；線圈／離散輸入是位元'),
       field('起始位址', startInput, '0 – 65535'),
-      field('數量', countInput, '暫存器最多 1024，位元最多 2048（自動切塊）'),
+      field('數量', countInput, '保持／輸入暫存器每次最多 125；線圈／離散輸入每次最多 2000'),
       field('型別', typeSelect, '32 位型別佔兩個暫存器'),
       field('字序', orderSelect, '32 位值的四種排列'),
       field('工程比例', scaleInput, '例如 0.1：暫存器 235 顯示 23.5'),
@@ -126,45 +144,12 @@ export function createModbusView({ setStatus }) {
         'div',
         { class: 'field' },
         h('label', {}, '輪詢'),
-        h('label', { class: 'switch' }, pollInput, h('span', {}, '持續讀取同一段位址')),
+        pollButton,
         pollIntervalInput,
-        h('span', { class: 'field-hint' }, '間隔 200 – 10000 ms；慢設備請調大，避免堆積'),
+        h('span', { class: 'field-hint' }, '間隔 200 – 60000 ms；慢設備請調大，避免堆積'),
       ),
     ),
     h('div', { class: 'form-actions' }, readButton, h('span', { class: 'form-actions-spacer' }), readState),
-  );
-
-  // ---- 写入
-  const writeKindSelect = select(KINDS.slice(0, 3), saved.writeKind ?? 'holding', 'mb-write-kind');
-  const writeAddressInput = h('input', { class: 'input', id: 'mb-write-address', type: 'number', min: '0', max: '65535', value: String(saved.writeAddress ?? 0) });
-  const writeValueInput = h('input', { class: 'input', id: 'mb-write-value', type: 'number', step: 'any', value: saved.writeValue ?? '' });
-  const writeBitInput = h('input', { class: 'input', id: 'mb-write-bit', type: 'number', min: '0', max: '15', value: saved.writeBit ?? '' });
-  const writeValuesInput = h('input', { class: 'input', id: 'mb-write-values', placeholder: '1,2,3', autocomplete: 'off' });
-  const verifyInput = h('input', { type: 'checkbox', checked: saved.verify === true });
-  const writeButton = h('button', { class: 'btn btn-primary', type: 'submit' }, '寫入');
-  const watchButton = h('button', { class: 'btn btn-ghost', type: 'button' }, '寫後確認');
-  const writeState = h('span', { class: 'result-target empty' }, '尚未寫入');
-
-  const writeForm = h(
-    'form',
-    { class: 'card-body', novalidate: '' },
-    h(
-      'div',
-      { class: 'grid-form' },
-      field('資料表', writeKindSelect, '離散輸入永遠唯讀，所以不在這裡'),
-      field('位址', writeAddressInput, '0 – 65535'),
-      field('單筆值', writeValueInput, '32 位型別填工程值即可，會自動拆成兩筆暫存器'),
-      field('位元 (0-15)', writeBitInput, '填了位元就只改這一個 bit，其餘保留'),
-      field('批次值', writeValuesInput, '逗號分隔的原始字組，例如 1,2,3'),
-      h(
-        'div',
-        { class: 'field' },
-        h('label', {}, '讀回驗證'),
-        h('label', { class: 'switch' }, verifyInput, h('span', {}, '寫入後讀回比對')),
-        h('span', { class: 'field-hint' }, '不等於寫入值時會標示 NOT verified'),
-      ),
-    ),
-    h('div', { class: 'form-actions' }, writeButton, watchButton, h('span', { class: 'form-actions-spacer' }), writeState),
   );
 
   // ---- 结果
@@ -194,7 +179,6 @@ export function createModbusView({ setStatus }) {
     { class: 'view' },
     h('section', { class: 'card' }, h('header', { class: 'card-head' }, h('h2', {}, '連線')), connectionForm),
     h('section', { class: 'card' }, h('header', { class: 'card-head' }, h('h2', {}, '讀取')), readForm),
-    h('section', { class: 'card' }, h('header', { class: 'card-head' }, h('h2', {}, '寫入')), writeForm),
     resultCard,
     writesCard,
     outputCard.element,
@@ -217,18 +201,66 @@ export function createModbusView({ setStatus }) {
           count: Number(countInput.value),
           scale: Number(scaleInput.value),
           offset: Number(offsetInput.value),
-          polling: pollInput.checked,
           pollIntervalMs: Number(pollIntervalInput.value),
-          writeKind: writeKindSelect.value,
-          writeAddress: Number(writeAddressInput.value),
-          writeValue: writeValueInput.value === '' ? '' : Number(writeValueInput.value),
-          writeBit: writeBitInput.value === '' ? '' : Number(writeBitInput.value),
-          verify: verifyInput.checked,
+          profiles: state.profiles,
+          activeProfile: state.activeProfile,
         }),
       );
     } catch {
       /* 私密模式可能拒绝写入，不影响操作 */
     }
+  }
+
+  function renderPresets() {
+    presetSelect.replaceChildren(
+      h('option', { value: '' }, '目前連線'),
+      ...state.profiles.map((entry) => h('option', { value: entry.name }, entry.name)),
+    );
+    presetSelect.value = state.activeProfile;
+    deletePresetButton.disabled = state.activeProfile === '';
+    savePresetButton.disabled = hostInput.value.trim() === '';
+  }
+
+  function savePreset() {
+    const host = hostInput.value.trim();
+    if (!host) {
+      toast('請先填位址', 'error');
+      hostInput.focus();
+      return;
+    }
+    const name = presetNameInput.value.trim() || `${host}:${portInput.value.trim()} / ${unitInput.value.trim()}`;
+    state.profiles = [
+      ...state.profiles.filter((entry) => entry.name !== name),
+      { name, host, port: portInput.value, unitId: unitInput.value },
+    ];
+    state.activeProfile = name;
+    presetNameInput.value = '';
+    renderPresets();
+    persist();
+    toast('已儲存裝置', 'ok');
+  }
+
+  async function choosePreset() {
+    const name = presetSelect.value;
+    state.activeProfile = name;
+    if (name) {
+      const profile = state.profiles.find((entry) => entry.name === name);
+      if (profile) {
+        if (state.connected) await disconnect();
+        hostInput.value = profile.host;
+        portInput.value = String(profile.port);
+        unitInput.value = String(profile.unitId);
+      }
+    }
+    renderPresets();
+    persist();
+  }
+
+  function clearReadResult() {
+    state.rows = null;
+    resultCard.hidden = true;
+    readState.textContent = '尚未讀取';
+    readState.className = 'result-target empty';
   }
 
   function showBanner(message) {
@@ -258,6 +290,12 @@ export function createModbusView({ setStatus }) {
     state.readOnly = snapshot.readOnly === true;
     state.recentWrites = snapshot.recentWrites ?? [];
     guardInput.checked = state.readOnly;
+    hostInput.disabled = state.connected;
+    portInput.disabled = state.connected;
+    connectButton.disabled = state.connected;
+    disconnectButton.disabled = !state.connected;
+    readButton.disabled = !state.connected;
+    pollButton.disabled = !state.connected && !state.polling;
     connectState.textContent = state.connected
       ? `${snapshot.host}:${snapshot.port} · 站號 ${snapshot.unitId}`
       : snapshot.lastError
@@ -327,6 +365,8 @@ export function createModbusView({ setStatus }) {
       outputCard.show(text);
       setStatus('idle', `已連線 ${result.host}:${result.port} 站號 ${result.unitId}`);
       persist();
+      await refreshConnection();
+      await read({ silent: true });
     } catch (error) {
       reportError(error);
     }
@@ -337,6 +377,10 @@ export function createModbusView({ setStatus }) {
     try {
       const { result, text } = await invokeCommand('modbus_connection', { action: 'disconnect' });
       applySnapshot(result);
+      state.rows = null;
+      resultCard.hidden = true;
+      readState.textContent = '尚未讀取';
+      readState.className = 'result-target empty';
       outputCard.show(text);
       setStatus('idle', '已中斷連線');
     } catch (error) {
@@ -364,9 +408,25 @@ export function createModbusView({ setStatus }) {
   async function read({ silent = false } = {}) {
     if (!silent) setStatus('busy', '讀取中…');
     try {
+      const maxCount = kindSelect.value === 'coil' || kindSelect.value === 'discrete' ? 2000 : 125;
+      const requestedCount = Number(countInput.value);
+      if (!Number.isInteger(requestedCount) || requestedCount < 1 || requestedCount > maxCount) {
+        throw new ApiError('invalid-parameter', `此資料表數量需介於 1 到 ${maxCount}`, { field: 'count' });
+      }
       const began = Date.now();
       const { result, text } = await invokeCommand('modbus_read', readInput());
+      const previous = state.rows;
+      if (previous?.kind === result.kind && previous?.type === result.type) {
+        if (Array.isArray(result.bits)) {
+          const before = new Map((previous.bits ?? []).map((on, index) => [previous.start + index, on]));
+          result.changed = result.bits.flatMap((on, index) => before.has(result.start + index) && before.get(result.start + index) !== on ? [result.start + index] : []);
+        } else {
+          const before = new Map((previous.rows ?? []).map((row) => [row.address, `${row.text}|${row.raw.join(',')}`]));
+          result.changed = (result.rows ?? []).filter((row) => before.has(row.address) && before.get(row.address) !== `${row.text}|${row.raw.join(',')}`).map((row) => row.address);
+        }
+      }
       state.rows = result;
+      state.pollFailures = 0;
       renderResult(result);
       outputCard.show(text, Date.now() - began);
       readState.textContent = `${result.chunks} 次請求 · ${formatDuration(result.latencyMs)}`;
@@ -375,7 +435,7 @@ export function createModbusView({ setStatus }) {
       persist();
       return result;
     } catch (error) {
-      stopPolling();
+      if (!silent || ++state.pollFailures >= 3) stopPolling();
       reportError(error, readState, outputCard);
       return null;
     }
@@ -392,10 +452,11 @@ export function createModbusView({ setStatus }) {
         const cell = h(
           'button',
           {
-            class: 'chip',
+          class: result.changed?.includes(address) ? 'chip result-changed' : 'chip',
             type: 'button',
             'data-active': String(on),
             title: `${address} = ${on ? 1 : 0}（點一下切換）`,
+            disabled: !state.connected || state.readOnly || result.kind !== 'coil',
           },
           String(address),
         );
@@ -407,11 +468,11 @@ export function createModbusView({ setStatus }) {
               value: on ? 0 : 1,
             });
             outputCard.show(text);
-            writeState.textContent = `位元 ${written.address} → ${written.value}`;
-            writeState.className = 'result-target';
+            setStatus('idle', `已切換 ${written.address} → ${written.value}`);
+            await refreshConnection();
             await read({ silent: true });
           } catch (error) {
-            reportError(error, writeState, outputCard);
+            reportError(error, null, outputCard);
           }
         });
         cells.push(cell);
@@ -433,16 +494,76 @@ export function createModbusView({ setStatus }) {
         h('div', { class: 'banner banner-warn' }, `要求 ${result.requested} 筆，超過單次上限，只讀了 ${result.count} 筆。`),
       );
     }
-    const head = h('tr', {}, h('th', {}, '位址'), h('th', {}, '原始字組'), h('th', {}, '值'));
+    const head = h('tr', {}, h('th', {}, '位址'), h('th', {}, '值'), h('th', {}, '原始字組'), h('th', {}, '位元'), h('th', {}, '寫入'));
     const body = h('tbody');
     for (const row of result.rows ?? []) {
+      const writable = state.connected && !state.readOnly && result.kind === 'holding';
+      const valueInput = h('input', {
+        class: 'input inline-write-input',
+        type: 'number',
+        step: 'any',
+        placeholder: String(row.text),
+        'aria-label': `寫入位址 ${row.address}`,
+      });
+      const inlineWrite = h('button', { class: 'btn btn-ghost', type: 'button', disabled: !writable }, '寫入');
+      inlineWrite.addEventListener('click', async () => {
+        const value = Number(valueInput.value);
+        if (valueInput.value.trim() === '' || !Number.isFinite(value)) {
+          toast('請輸入有效數值', 'error');
+          valueInput.focus();
+          return;
+        }
+        try {
+          const { result: written, text } = await invokeCommand('modbus_write', {
+            kind: 'holding', address: row.address, value,
+            type: result.type, wordOrder: result.wordOrder, scale: result.scale, offset: result.offset,
+          });
+          outputCard.show(text);
+          setStatus('idle', `已寫入位址 ${row.address}，正在讀回更新結果`);
+          valueInput.value = '';
+          await refreshConnection();
+          await read({ silent: true });
+        } catch (error) {
+          reportError(error, null, outputCard);
+        }
+      });
+      valueInput.addEventListener('keydown', (event) => {
+        if (event.key === 'Enter') { event.preventDefault(); inlineWrite.click(); }
+      });
+      const bits = result.width === 1
+        ? h('div', { class: 'bit-row' }, ...Array.from({ length: 16 }, (_, index) => {
+            const bit = 15 - index;
+            const on = (((row.raw[0] ?? 0) >> bit) & 1) === 1;
+            const bitButton = h('button', {
+              class: 'bit-cell', 'data-active': String(on), type: 'button', title: `bit ${bit}: ${on ? 1 : 0}`,
+              disabled: !writable,
+            }, String(bit));
+            bitButton.addEventListener('click', async () => {
+              try {
+                const { text } = await invokeCommand('modbus_write', {
+                  kind: 'holding', address: row.address, bit, value: on ? 0 : 1,
+                });
+                outputCard.show(text);
+                setStatus('idle', `已切換 ${row.address} bit ${bit}`);
+                await refreshConnection();
+                await read({ silent: true });
+              } catch (error) {
+                reportError(error, null, outputCard);
+              }
+            });
+            return bitButton;
+          }))
+        : h('span', { class: 'field-hint' }, '32 位');
+      const changed = result.changed?.includes(row.address);
       body.append(
         h(
           'tr',
-          {},
+          { class: changed ? 'result-changed' : '' },
           h('td', {}, String(row.address)),
-          h('td', {}, row.raw.map(hex4).join(' ')),
           h('td', {}, row.text),
+          h('td', {}, row.raw.map(hex4).join(' ')),
+          h('td', {}, bits),
+          h('td', {}, result.kind === 'holding' ? h('div', { class: 'inline-write' }, valueInput, inlineWrite) : h('span', { class: 'field-hint' }, '唯讀')),
         ),
       );
     }
@@ -457,13 +578,24 @@ export function createModbusView({ setStatus }) {
   }
 
   function startPolling() {
+    if (!state.connected) {
+      toast('請先連線', 'error');
+      return;
+    }
     const intervalMs = Math.max(200, Number(pollIntervalInput.value) || 1000);
     state.polling = true;
+    state.pollFailures = 0;
+    pollButton.textContent = '停止輪詢';
+    pollButton.className = 'btn btn-ghost';
+    pollButton.disabled = false;
     liveTag.hidden = false;
     const tick = async () => {
       if (!state.polling) return;
       await read({ silent: true });
-      if (state.polling) state.pollTimer = setTimeout(tick, intervalMs);
+      if (state.polling) {
+        const nextInterval = Math.min(60000, Math.max(200, Number(pollIntervalInput.value) || intervalMs));
+        state.pollTimer = setTimeout(tick, nextInterval);
+      }
     };
     void tick();
     persist();
@@ -474,67 +606,18 @@ export function createModbusView({ setStatus }) {
     liveTag.hidden = true;
     if (state.pollTimer) clearTimeout(state.pollTimer);
     state.pollTimer = null;
-    pollInput.checked = false;
+    pollButton.textContent = '開始輪詢';
+    pollButton.disabled = !state.connected;
   }
 
-  function parseValues(text) {
-    return text
-      .split(/[,\s]+/)
-      .filter((part) => part !== '')
-      .map((part) => Number(part));
-  }
-
-  async function write({ thenWatch = false } = {}) {
-    const body = {
-      kind: writeKindSelect.value,
-      address: Number(writeAddressInput.value),
-    };
-    const batch = parseValues(writeValuesInput.value);
-    const bit = writeBitInput.value === '' ? null : Number(writeBitInput.value);
-    if (batch.length > 0) body.values = batch;
-    else if (bit !== null) {
-      body.bit = bit;
-      body.value = Number(writeValueInput.value || 0);
-    } else if (writeValueInput.value !== '') {
-      body.value = Number(writeValueInput.value);
-      if (writeKindSelect.value === 'holding') {
-        body.type = typeSelect.value;
-        body.wordOrder = orderSelect.value;
-        body.scale = Number(scaleInput.value === '' ? 1 : scaleInput.value);
-        body.offset = Number(offsetInput.value === '' ? 0 : offsetInput.value);
-      }
-    } else {
-      toast('請填單筆值、批次值或位元', 'error');
-      writeValueInput.focus();
-      return;
-    }
-    if (verifyInput.checked) body.verify = true;
-
-    setStatus('busy', '寫入中…');
-    try {
-      const { result, text } = await invokeCommand('modbus_write', body);
-      outputCard.show(text);
-      writeState.textContent = result.verified === false ? '寫入但驗證不符' : `已寫入 ${result.address}`;
-      writeState.className = result.verified === false ? 'result-target empty' : 'result-target';
-      setStatus(result.verified === false ? 'error' : 'idle', text.split('\n')[0]);
-      persist();
-      if (thenWatch) {
-        const expect = Number(writeValueInput.value);
-        if (Number.isFinite(expect)) {
-          const watched = await invokeCommand('modbus_watch', {
-            ...readInput(),
-            start: Number(writeAddressInput.value),
-            expect,
-            timeoutMs: 3000,
-          });
-          outputCard.show(watched.text);
-          setStatus('idle', watched.text.split('\n')[0]);
-        }
-      }
-      await refreshConnection();
-    } catch (error) {
-      reportError(error, writeState, outputCard);
-    }
+  function syncReadOptions() {
+    const bits = kindSelect.value === 'coil' || kindSelect.value === 'discrete';
+    const twoWords = ['u32', 'i32', 'f32'].includes(typeSelect.value);
+    typeSelect.disabled = bits;
+    orderSelect.disabled = bits || !twoWords;
+    scaleInput.disabled = bits;
+    offsetInput.disabled = bits;
+    countInput.max = bits ? '2000' : '125';
   }
 
   async function toggleGuard() {
@@ -553,6 +636,19 @@ export function createModbusView({ setStatus }) {
     event.preventDefault();
     void connect();
   });
+  savePresetButton.addEventListener('click', savePreset);
+  deletePresetButton.addEventListener('click', () => {
+    if (!state.activeProfile) return;
+    state.profiles = state.profiles.filter((entry) => entry.name !== state.activeProfile);
+    state.activeProfile = '';
+    renderPresets();
+    persist();
+  });
+  presetSelect.addEventListener('change', () => void choosePreset());
+  hostInput.addEventListener('input', renderPresets);
+  for (const input of [hostInput, portInput, unitInput, timeoutInput, startInput, countInput, scaleInput, offsetInput, pollIntervalInput]) {
+    input.addEventListener('change', persist);
+  }
   disconnectButton.addEventListener('click', () => void disconnect());
   guardInput.addEventListener('change', () => void toggleGuard());
 
@@ -560,31 +656,30 @@ export function createModbusView({ setStatus }) {
     event.preventDefault();
     void read();
   });
-  pollInput.addEventListener('change', () => {
-    if (pollInput.checked) startPolling();
-    else stopPolling();
-  });
+  pollButton.addEventListener('click', () => state.polling ? stopPolling() : startPolling());
   kindSelect.addEventListener('change', () => {
-    const bits = kindSelect.value === 'coil' || kindSelect.value === 'discrete';
-    typeSelect.disabled = bits;
-    orderSelect.disabled = bits;
-    scaleInput.disabled = bits;
-    offsetInput.disabled = bits;
+    syncReadOptions();
+    clearReadResult();
+    persist();
   });
-
-  writeForm.addEventListener('submit', (event) => {
-    event.preventDefault();
-    void write();
+  typeSelect.addEventListener('change', () => {
+    syncReadOptions();
+    clearReadResult();
+    persist();
   });
-  watchButton.addEventListener('click', () => void write({ thenWatch: true }));
+  for (const input of [orderSelect, startInput, countInput, scaleInput, offsetInput]) {
+    input.addEventListener('change', clearReadResult);
+  }
+  orderSelect.addEventListener('change', persist);
 
   return {
     element: root,
     async mount() {
-      kindSelect.dispatchEvent(new Event('change'));
+      syncReadOptions();
+      disconnectButton.disabled = true;
+      renderPresets();
       await refreshConnection();
       if (state.connected) await read({ silent: true });
-      if (pollInput.checked) startPolling();
     },
     unmount() {
       stopPolling();

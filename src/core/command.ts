@@ -55,6 +55,8 @@ export interface CommandContext {
   signal: AbortSignal
   /** 请求级日志，stdio 模式下绝不能写 stdout。 */
   log: (message: string) => void
+  /** 呼叫來源供稽核紀錄使用；Web 面板為 panel，MCP 工具為 tool。 */
+  source?: 'panel' | 'tool'
 }
 
 export interface CommandDefinition<
